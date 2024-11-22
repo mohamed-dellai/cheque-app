@@ -4,18 +4,48 @@ import React, { useState, useEffect } from 'react'
 import { Pencil, Trash2, Save, X, Scan, Loader, Printer } from 'lucide-react'
 import axios from 'axios'
 
+// Utility functions
+const formatDate = (dateString) => {
+  if (!dateString) return ''
+  const [year, month, day] = dateString.split('-')
+  return `${day}/${month}/${year}`
+}
+
+const createEmptyRow = () => ({
+  id: Date.now().toString(),
+  chequeNumber: '',
+  bankName: '',
+  date: '',
+  ownerName: '',
+  amount: '',
+  photo: '',
+  saveDate: new Date().toISOString().split('T')[0],
+  isNew: true
+})
+
+// API
+const scanCheque = async (chequeNum) => {
+  const response = await axios.post("/api/savePhoto", { chequeNum })
+  return response.data
+}
+
 export default function BankChequeApp() {
   const [cheques, setCheques] = useState([])
   const [editId, setEditId] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
   const [filter, setFilter] = useState('all')
+  const [monthFilter, setMonthFilter] = useState('')
+  const [yearFilter, setYearFilter] = useState('')
+  const [startDateFilter, setStartDateFilter] = useState('')
+  const [endDateFilter, setEndDateFilter] = useState('')
   const [enlargedImage, setEnlargedImage] = useState(null)
 
   useEffect(() => {
     const savedCheques = localStorage.getItem('cheques')
     if (savedCheques) {
-      setCheques([...JSON.parse(savedCheques), createEmptyRow()])
+      const parsedCheques = JSON.parse(savedCheques)
+      setCheques([...parsedCheques, createEmptyRow()])
     } else {
       setCheques([createEmptyRow()])
     }
@@ -26,24 +56,12 @@ export default function BankChequeApp() {
     localStorage.setItem('cheques', JSON.stringify(chequesToSave))
   }, [cheques])
 
-  const createEmptyRow = () => ({
-    id: Date.now().toString(),
-    chequeNumber: '',
-    bankName: '',
-    date: '',
-    ownerName: '',
-    amount: '',
-    photo: '',
-    isNew: true
-  })
-
-  const handleEdit = (id) => {
-    setEditId(id)
-  }
+  const handleEdit = (id) => setEditId(id)
 
   const handleSave = (id) => {
     const chequeToSave = cheques.find(cheque => cheque.id === id)
-    if (chequeToSave.chequeNumber && 
+    if (chequeToSave && 
+        chequeToSave.chequeNumber && 
         chequeToSave.bankName && 
         chequeToSave.date && 
         chequeToSave.ownerName && 
@@ -51,7 +69,7 @@ export default function BankChequeApp() {
         chequeToSave.photo) {
       setCheques(prevCheques => {
         const updatedCheques = prevCheques.map(cheque => 
-          cheque.id === id ? { ...cheque, isNew: false } : cheque
+          cheque.id === id ? { ...cheque, isNew: false, saveDate: new Date().toISOString().split('T')[0] } : cheque
         )
         if (!updatedCheques.some(cheque => cheque.isNew)) {
           updatedCheques.push(createEmptyRow())
@@ -100,29 +118,22 @@ export default function BankChequeApp() {
   const handlePhotoChange = async (id) => {
     setIsLoading(true)
     try {
-      const resIjson = await axios.post("/api/savePhoto", { chequeNum: id })
-      handleChange(id, 'photo', `/scanned/${resIjson.data.path}`)
-      const chequeToSave = cheques.find(cheque => cheque.id === id)
+      const resIjson = await scanCheque(id)
       const updatedCheques = cheques.map((cheque) => {
         if (cheque.id === id) {
-            // Update only the matched cheque with new data
-            return {
-                ...cheque,
-                amount: resIjson.data.amount,
-                date: resIjson.data.date,
-                ownerName: resIjson.data.owner,
-                chequeNumber: resIjson.data.chequeNum,
-                bankName: resIjson.data.BankName,
-                photo: `/scanned/${resIjson.data.path}` // assuming 'photo' is a field
-            };
+          return {
+            ...cheque,
+            amount: resIjson.amount,
+            date: resIjson.date,
+            ownerName: resIjson.owner,
+            chequeNumber: resIjson.chequeNum,
+            bankName: resIjson.BankName,
+            photo: `/scanned/${resIjson.path}`
+          };
         }
         return cheque;
-    });
-
-    setCheques(updatedCheques);
-      
-      console.log(chequeToSave)
-      console.log(resIjson)
+      });
+      setCheques(updatedCheques);
       setMessage({ type: 'success', text: 'Chèque scanné avec succès!' })
     } catch (error) {
       console.error(error)
@@ -133,36 +144,42 @@ export default function BankChequeApp() {
     }
   }
 
-  const formatDate = (dateString) => {
-    const [year, month, day] = dateString.split('-')
-    return `${day}/${month}/${year}`
-  }
-
   const filteredCheques = cheques.filter(cheque => {
-    const today = new Date().toISOString().split('T')[0]
+    if (cheque.isNew) return true; // Always show the new empty row
+    
+    const chequeDate = new Date(cheque.date);
+    const today = new Date();
+    
     switch(filter) {
       case 'pastDue':
-        return cheque.date < today && !cheque.isNew
+        return chequeDate < today;
       case 'today':
-        return cheque.date === today && !cheque.isNew
+        return chequeDate.toDateString() === today.toDateString();
+      case 'month':
+        return chequeDate.getMonth() + 1 === parseInt(monthFilter);
+      case 'year':
+        return chequeDate.getFullYear() === parseInt(yearFilter);
+      case 'dateRange':
+        const start = startDateFilter ? new Date(startDateFilter) : new Date(0);
+        const end = endDateFilter ? new Date(endDateFilter) : new Date();
+        return chequeDate >= start && chequeDate <= end;
       default:
-        return !cheque.isNew || (cheque.isNew && cheques.filter(c => c.isNew).length === 1)
+        return true;
     }
   })
 
-  const totalAmount = filteredCheques.reduce((sum, cheque) => sum + parseFloat(cheque.amount || 0), 0)
+  const totalAmount = filteredCheques.reduce((sum, cheque) => sum + parseFloat(cheque.amount || '0'), 0)
 
-  const handleImageClick = (photo) => {
-    setEnlargedImage(photo)
-  }
+  const handleImageClick = (photo) => setEnlargedImage(photo)
 
   const handlePrint = () => {
-    const printWindow = window.open('', '_blank')
-    printWindow.document.write(`<html><head><title>Chèque</title></head><body>`)
-    printWindow.document.write(`<img src="${enlargedImage}" style="max-width: 100%;" />`)
-    printWindow.document.write(`</body></html>`)
-    printWindow.document.close()
-    
+    if (enlargedImage) {
+      const printWindow = window.open('', '_blank')
+      printWindow.document.write(`<html><head><title>Chèque</title></head><body>`)
+      printWindow.document.write(`<img src="${enlargedImage}" style="max-width: 100%;" />`)
+      printWindow.document.write(`</body></html>`)
+      printWindow.document.close()
+    }
   }
 
   return (
@@ -173,8 +190,8 @@ export default function BankChequeApp() {
           {message.text}
         </div>
       )}
-      <div className="mb-4 flex justify-between items-center">
-        <div>
+      <div className="mb-4 flex flex-wrap justify-between items-center">
+        <div className="w-full md:w-auto mb-2 md:mb-0">
           <label htmlFor="filter" className="mr-2 text-gray-700">Filtre:</label>
           <select
             id="filter"
@@ -185,9 +202,65 @@ export default function BankChequeApp() {
             <option value="all">Tous les chèques</option>
             <option value="pastDue">Chèques échus</option>
             <option value="today">Chèques d'aujourd'hui</option>
+            <option value="month">Par mois</option>
+            <option value="year">Par année</option>
+            <option value="dateRange">Plage de dates</option>
           </select>
         </div>
-        <div className="text-xl font-bold text-gray-800">
+        {filter === 'month' && (
+          <div className="w-full md:w-auto mb-2 md:mb-0">
+            <label htmlFor="monthFilter" className="mr-2 text-gray-700">Mois:</label>
+            <select
+              id="monthFilter"
+              value={monthFilter}
+              onChange={(e) => setMonthFilter(e.target.value)}
+              className="p-2 border rounded bg-white text-gray-800"
+            >
+              {[...Array(12)].map((_, i) => (
+                <option key={i} value={i + 1}>{new Date(0, i).toLocaleString('default', { month: 'long' })}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {filter === 'year' && (
+          <div className="w-full md:w-auto mb-2 md:mb-0">
+            <label htmlFor="yearFilter" className="mr-2 text-gray-700">Année:</label>
+            <input
+              type="number"
+              id="yearFilter"
+              value={yearFilter}
+              onChange={(e) => setYearFilter(e.target.value)}
+              className="p-2 border rounded bg-white text-gray-800"
+              min="1900"
+              max="2099"
+            />
+          </div>
+        )}
+        {filter === 'dateRange' && (
+          <>
+            <div className="w-full md:w-auto mb-2 md:mb-0">
+              <label htmlFor="startDate" className="mr-2 text-gray-700">Date de début:</label>
+              <input
+                type="date"
+                id="startDate"
+                value={startDateFilter}
+                onChange={(e) => setStartDateFilter(e.target.value)}
+                className="p-2 border rounded bg-white text-gray-800"
+              />
+            </div>
+            <div className="w-full md:w-auto mb-2 md:mb-0">
+              <label htmlFor="endDate" className="mr-2 text-gray-700">Date de fin:</label>
+              <input
+                type="date"
+                id="endDate"
+                value={endDateFilter}
+                onChange={(e) => setEndDateFilter(e.target.value)}
+                className="p-2 border rounded bg-white text-gray-800"
+              />
+            </div>
+          </>
+        )}
+        <div className="w-full md:w-auto text-xl font-bold text-gray-800">
           Total: {totalAmount.toFixed(3)} TND
         </div>
       </div>
@@ -201,6 +274,7 @@ export default function BankChequeApp() {
               <th className="py-3 px-6 text-left">Nom du Propriétaire</th>
               <th className="py-3 px-6 text-left">Montant</th>
               <th className="py-3 px-6 text-left">Photo</th>
+              <th className="py-3 px-6 text-left">Date de Sauvegarde</th>
               <th className="py-3 px-6 text-left">Actions</th>
             </tr>
           </thead>
@@ -212,7 +286,7 @@ export default function BankChequeApp() {
                     value={cheque.chequeNumber}
                     onChange={(e) => handleChange(cheque.id, 'chequeNumber', e.target.value)}
                     className="w-full p-1 border rounded"
-                    disabled={!cheque.isNew && editId !== cheque.id}
+                    disabled={!cheque.isNew && cheque.id !== editId}
                   />
                 </td>
                 <td className="py-3 px-6">
@@ -220,7 +294,7 @@ export default function BankChequeApp() {
                     value={cheque.bankName}
                     onChange={(e) => handleChange(cheque.id, 'bankName', e.target.value)}
                     className="w-full p-1 border rounded"
-                    disabled={!cheque.isNew && editId !== cheque.id}
+                    disabled={!cheque.isNew && cheque.id !== editId}
                   />
                 </td>
                 <td className="py-3 px-6">
@@ -229,7 +303,7 @@ export default function BankChequeApp() {
                     value={cheque.date}
                     onChange={(e) => handleChange(cheque.id, 'date', e.target.value)}
                     className="w-full p-1 border rounded"
-                    disabled={!cheque.isNew && editId !== cheque.id}
+                    disabled={!cheque.isNew && cheque.id !== editId}
                   />
                 </td>
                 <td className="py-3 px-6">
@@ -237,7 +311,7 @@ export default function BankChequeApp() {
                     value={cheque.ownerName}
                     onChange={(e) => handleChange(cheque.id, 'ownerName', e.target.value)}
                     className="w-full p-1 border rounded"
-                    disabled={!cheque.isNew && editId !== cheque.id}
+                    disabled={!cheque.isNew && cheque.id !== editId}
                   />
                 </td>
                 <td className="py-3 px-6">
@@ -246,11 +320,11 @@ export default function BankChequeApp() {
                     value={cheque.amount}
                     onChange={(e) => handleChange(cheque.id, 'amount', e.target.value)}
                     className="w-full p-1 border rounded"
-                    disabled={!cheque.isNew && editId !== cheque.id}
+                    disabled={!cheque.isNew && cheque.id !== editId}
                   />
                 </td>
                 <td className="py-3 px-6">
-                  {cheque.photo && (editId !== cheque.id) ? (
+                  {cheque.photo && (cheque.id !== editId) ? (
                     <img 
                       src={cheque.photo} 
                       alt="Chèque" 
@@ -268,7 +342,19 @@ export default function BankChequeApp() {
                   )}
                 </td>
                 <td className="py-3 px-6">
-                  {cheque.isNew || editId === cheque.id ? (
+                  {cheque.isNew ? (
+                    <input
+                      type="date"
+                      value={cheque.saveDate}
+                      onChange={(e) => handleChange(cheque.id, 'saveDate', e.target.value)}
+                      className="w-full p-1 border rounded"
+                    />
+                  ) : (
+                    formatDate(cheque.saveDate)
+                  )}
+                </td>
+                <td className="py-3 px-6">
+                  {cheque.isNew || cheque.id === editId ? (
                     <>
                       <button onClick={() => handleSave(cheque.id)} className="p-1 mr-1 text-green-600 hover:text-green-800">
                         <Save className="h-5 w-5" />

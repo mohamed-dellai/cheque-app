@@ -11,6 +11,7 @@ export async function POST(req) {
         const scannedFilePath = await saveImage(chequeId, scriptPath);
         const resJson=await getChequeInfo('public\\scanned\\'+scannedFilePath)
         resJson['path']=scannedFilePath
+        resJson.amount=resJson.amount.replaceAll(",",".")
         return NextResponse.json(resJson, { status: 200 });
 
     } catch (error) {

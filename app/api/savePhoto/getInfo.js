@@ -47,7 +47,7 @@ export async function getChequeInfo(path){
             "amount": "<amount>",
             "BankName": "<complete bank name>"
           }'
-        Only respond with this JSON format, without extra text no return line no spaces, the owner of the cheque will be bellow the syntese "Titulaire de compte" or "N° du compte" note that the owner of the cheque is not in front the word 'a l'ordre de , and the amount is always in the top right corener written with hand.
+        Only respond with this JSON format, without extra text no return line no spaces, the owner of the cheque will be bellow the syntese "Titulaire de compte" or "N° du compte" note that the owner of the cheque is not in front the word 'a l'ordre de , and the amount is always in the top right corener written with hand and the date is under the owner.
             `,
           {
             fileData: {
