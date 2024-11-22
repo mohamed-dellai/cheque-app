@@ -7,7 +7,7 @@ export async function POST(req) {
     try {
         const body = await req.json();
         const chequeId = body.chequeNum;
-        const scriptPath = path.join('C:\\Users\\Mohamed Dellai\\Desktop\\CHEQUE APP\\my-next-app\\app\\api\\savePhoto', 'scanner.ps1');
+        const scriptPath = path.join(process.cwd(), 'app', 'api', 'savePhoto', 'scanner.ps1');
         const scannedFilePath = await saveImage(chequeId, scriptPath);
         const resJson=await getChequeInfo('public\\scanned\\'+scannedFilePath)
         resJson['path']=scannedFilePath
